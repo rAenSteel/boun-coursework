@@ -4,13 +4,48 @@ import pickle
 variables = {}
 instructions = []
 functions = ["tasu", "kaikakko", "tojikakko", "kakeru"]
-keywords = ["print", "no", "atai", "wa", "o", "de", "aru", "suru", "tasu", "seisu", "moji-retsu", "kakeru", "kaikakko", "tojikakko", "Puroguramu", "hajimeyo", "oware"]
+# degisken isimleri buyuk-kucuk harf duyarsiz oldugu icin anahtar kelimeleri kucuk harfle tutuyorum
+keywords = ["print", "no", "atai", "wa", "o", "de", "aru", "suru", "tasu", "seisu", "moji-retsu", "kakeru", "kaikakko", "tojikakko", "puroguramu", "hajimeyo", "oware"]
+rakamlar = "0123456789"
 # yardimci fonksiyon son bulunan indexi bulmak icin
 def find_last(lst, item):
     for i in range(len(lst)-1, -1, -1):
         if lst[i] == item:
             return i
     return -1
+# satiri tokenlara ayiran fonksiyon
+# -...- arasindaki string sabitleri bosluk icerse bile tek token olarak aliniyor
+def tokenize(content, line_no):
+    tokens = []
+    i = 0
+    n = len(content)
+    if n == 0:
+        raise Exception(f"Compile error {line_no=}")
+    while i < n:
+        # token bosluk ile baslayamaz (bastaki bosluk ya da iki bosluk)
+        if content[i] == " ":
+            raise Exception(f"Compile error {line_no=}")
+        if content[i] == "-":
+            # string sabiti bir sonraki tireye kadar devam ediyor
+            j = content.find("-", i + 1)
+            if j == -1:
+                raise Exception(f"Compile error {line_no=}")
+        else:
+            # diger tokenlar bir sonraki bosluga kadar
+            j = content.find(" ", i)
+            if j == -1:
+                j = n
+            j = j - 1
+        tokens.append(content[i:j+1])
+        i = j + 1
+        if i < n:
+            # iki token arasinda tam olarak bir bosluk olmali
+            if content[i] != " ":
+                raise Exception(f"Compile error {line_no=}")
+            i += 1
+            if i == n:
+                raise Exception(f"Compile error {line_no=}")
+    return tokens
 # tokenlari kontrol eden fonksiyon
 def token_controller(lst, line_no):
     parantez_sayisi = 0
@@ -31,22 +66,22 @@ def token_controller(lst, line_no):
     for eleman in lst:
         if eleman in keywords and eleman not in functions:
             raise Exception(f"Compile error {line_no=}")
-        # string kontrolu
-        elif eleman.startswith("-") and eleman.endswith("-"):
-            if "-" in eleman[1:-1]:
+        # string kontrolu (tokenize zaten tireden tireye aldi)
+        elif eleman.startswith("-"):
+            if len(eleman) < 2 or not eleman.endswith("-") or "-" in eleman[1:-1]:
                 raise Exception(f"Compile error {line_no=}")
             # uzunluk kontrolu yapiyoruz
             if len(eleman[1:-1]) > 10000:
                 raise Exception(f"Compile error {line_no=}")
         # integer kontrolu
-        elif eleman[0].isdigit():
+        elif eleman[0] in rakamlar:
             if eleman.startswith("0") and len(eleman) > 1:
                 raise Exception(f"Compile error {line_no=}")
             # virgul kontrolu
             if "," in eleman:
                 parts = eleman.split(",")
-                # eger ilk eleman veya son eleman virgilse hata firlaticak
-                if parts[0] == "":
+                # ilk grup 1 ile 4 hane arasinda olmali
+                if len(parts[0]) < 1 or len(parts[0]) > 4:
                     raise Exception(f"Compile error {line_no=}")
                 for part in parts[1:]:
                     #eger virgulleri 4 er 4 er atmadiysa hata firlaticak
@@ -54,52 +89,41 @@ def token_controller(lst, line_no):
                         raise Exception(f"Compile error {line_no=}")
                 if eleman.endswith(","):
                     raise Exception(f"Compile error {line_no=}")
-            # sayi kontrolu
+            # sayi kontrolu: virgul disinda sadece 0-9 rakamlari olabilir
             token = eleman.replace(",", "")
-            if not token.isdigit():
-                raise Exception(f"Compile error {line_no=}")
+            for karakter in token:
+                if karakter not in rakamlar:
+                    raise Exception(f"Compile error {line_no=}")
             # 10 haneden uzun mu kontrolu
             if int(token) > 9999999999:
                 raise Exception(f"Compile error {line_no=}")
         else:
             if eleman not in functions:
-                if eleman not in variables:
+                # degisken isimleri buyuk-kucuk harf duyarsiz
+                if eleman.lower() not in variables:
                     raise Exception(f"Compile error {line_no=}")
     return lst
-# tür kontrolü yapan fonksiyon
-def check_types(lst, line_no):
-    type_lst = []
-    #once tipi ne ise ona ceviriliyor
-    for item in lst:
-        if item in functions:
-            type_lst.append(item)
-        elif item.startswith("-") and item.endswith("-"):
-            type_lst.append("str")
-        elif item[0].isdigit():
-            type_lst.append("int")
+# degisken referanslarini kucuk harfe ceviren fonksiyon (token_controller'dan sonra cagriliyor)
+def normalize(lst):
+    yeni = []
+    for eleman in lst:
+        if eleman in functions or eleman.startswith("-") or eleman[0] in rakamlar:
+            yeni.append(eleman)
         else:
-            if variables[item] == "seisu": 
-                type_lst.append("int")
-            else: 
-                type_lst.append("str")
-    # parantez ici islem yapmak icin parantez araligi tanimalaniyor
-    while "kaikakko" in type_lst:
-        #kapa parantezin indekisini bulup kapa parantezden geriye gidip acik parantez indeksini bulucaz
-        #islemler sagdan sola yapilacak
-        itojikakko = type_lst.index("tojikakko")
-        ikaikakko = -1
-        for i in range(itojikakko-1, -1, -1):
-            #1 er 1 er liste basina arama yapiliyor
-            if type_lst[i] == "kaikakko":
-                ikaikakko = i
-                break
-        #parantez icini bulduk ara diye araliga aliyoruz
-        ara = type_lst[ikaikakko+1:itojikakko]
-        #recursive olarak parantez ici islemi yapip sonucu aliyoruz
-        sonuc = check_types(ara, line_no)
-        #list slices ile parantez ici kisim sonuc ile degistiriliyor
-        type_lst = type_lst[:ikaikakko] + [sonuc] + type_lst[itojikakko+1:]
-
+            yeni.append(eleman.lower())
+    return yeni
+# parantezsiz bir ifadenin tipini bulan fonksiyon
+def check_flat(type_lst, line_no):
+    # ifade deger operator deger operator deger ... seklinde olmali
+    if len(type_lst) % 2 == 0:
+        raise Exception(f"Compile error {line_no=}")
+    for i in range(len(type_lst)):
+        if i % 2 == 0:
+            if type_lst[i] != "int" and type_lst[i] != "str":
+                raise Exception(f"Compile error {line_no=}")
+        else:
+            if type_lst[i] != "tasu" and type_lst[i] != "kakeru":
+                raise Exception(f"Compile error {line_no=}")
     #carpma islemi yapicaz
     while "kakeru" in type_lst:
         #sagdan sola islem yapmak icin son kakeru indeksini buluyoruz
@@ -110,14 +134,11 @@ def check_types(lst, line_no):
         # hangi typlelarin carpildigina bakip cevabi o type olarak atiyoruz
         if t1 == "int" and t2 == "int": res = "int"
         elif t1 == "int" and t2 == "str": res = "str"
-        #eger ilk type str ikinci int ise hata firlaticak
-        elif t1 == "str" and t2 == "int":
-            raise Exception(f"Compile error {line_no=}")
+        #eger ilk type str ise (str kakeru int veya str kakeru str) hata firlaticak
         else:
             raise Exception(f"Compile error {line_no=}")
         #yine list slices ile carpim sonucu ekleniyor
         type_lst = type_lst[:i-1] + [res] + type_lst[i+2:]
-
     # toplama islemi yapicaz
     while "tasu" in type_lst:
         #sagdan sola islem yapmak icin son tasu indeksini buluyoruz
@@ -133,24 +154,55 @@ def check_types(lst, line_no):
         type_lst = type_lst[:i-1] + [res] + type_lst[i+2:]
     # tek elemanli liste olacagi icin ilk elemani donduruyoruz
     return type_lst[0]
+# tür kontrolü yapan fonksiyon
+def check_types(lst, line_no):
+    type_lst = []
+    #once tipi ne ise ona ceviriliyor (tipler bir kez cevriliyor)
+    for item in lst:
+        if item in functions:
+            type_lst.append(item)
+        elif item.startswith("-"):
+            type_lst.append("str")
+        elif item[0] in rakamlar:
+            type_lst.append("int")
+        else:
+            if variables[item] == "seisu":
+                type_lst.append("int")
+            else:
+                type_lst.append("str")
+    # parantez ici islem yapmak icin parantez araligi tanimalaniyor
+    while "kaikakko" in type_lst:
+        #kapa parantezin indekisini bulup kapa parantezden geriye gidip acik parantez indeksini bulucaz
+        itojikakko = type_lst.index("tojikakko")
+        ikaikakko = -1
+        for i in range(itojikakko-1, -1, -1):
+            if type_lst[i] == "kaikakko":
+                ikaikakko = i
+                break
+        #parantez icini bulduk ara diye araliga aliyoruz (ic ice parantez olmadigi icin ara parantezsiz)
+        ara = type_lst[ikaikakko+1:itojikakko]
+        sonuc = check_flat(ara, line_no)
+        #list slices ile parantez ici kisim sonuc ile degistiriliyor
+        type_lst = type_lst[:ikaikakko] + [sonuc] + type_lst[itojikakko+1:]
+    return check_flat(type_lst, line_no)
 #tokeni alip anlamli halini donduren fonksiyon
+#degerler tek elemanli liste olarak donuyor ki "-tasu-" gibi bir string operator sanilmasin
 def word_means(token, d):
     if token in functions:
         #fonksiyon ise direkt token donduruluyor
         return token
-    elif token in d:
-        #degisken ise deger donduruluyor
-        return d[token]
-    elif token.startswith("-") and token.endswith("-"):
+    elif token.startswith("-"):
         #string ise stringin ham haline getirip donduruluyor
-        return token.strip("-")
-    else:
+        return [token[1:-1]]
+    elif token[0] in rakamlar:
         #integer ise virgul kaldirip int e cevirip donduruluyor
-        token = token.replace(",", "")
-        return int(token)
+        return [int(token.replace(",", ""))]
+    else:
+        #degisken ise deger donduruluyor
+        return [d[token]]
 # simdi de tipleri kontrol eden fonksiyonun matematik yapan halini yazicagiz execute icin
 def list_math(lst, line_no):
-    while "kaikakko" in lst and "tojikakko" in lst:
+    while "kaikakko" in lst:
         # parantez ici islemi yapmak icin parantez araligi tanimalaniyor
         itojikakko = lst.index("tojikakko")
         ikaikakko = -1
@@ -158,11 +210,8 @@ def list_math(lst, line_no):
             if lst[i] == "kaikakko":
                 ikaikakko = i
                 break
-        #parantez kapanmazsa hata firlaticak
-        if ikaikakko == -1:
-            raise Exception(f"Runtime error {line_no=}")
         ara = lst[ikaikakko+1:itojikakko]
-        # recursive olarak parantez ici islemi yapip sonucu aliyoruz
+        # parantez ici islemi yapip sonucu aliyoruz
         ara_sonuc = list_math(ara, line_no)
         #list slicing ile parantezli kisim sonucu ile degistiriliyor
         lst = lst[:ikaikakko] + ara_sonuc + lst[itojikakko+1:]
@@ -171,8 +220,8 @@ def list_math(lst, line_no):
         #sagdan sola islem yapmak icin son kakeru indeksini buluyoruz
         i = find_last(lst, "kakeru")
         #kakeru nun solundaki ve sagindaki degerleri aliyoruz
-        val1 = lst[i-1]
-        val2 = lst[i+1]
+        val1 = lst[i-1][0]
+        val2 = lst[i+1][0]
 
         if type(val1) == int and type(val2) == int:
             carpim = val1 * val2
@@ -180,37 +229,36 @@ def list_math(lst, line_no):
             if carpim > 9999999999:
                 raise Exception(f"Runtime error {line_no=}")
             #list slicing ile carpim sonucu ekleniyor
-            lst = lst[:i-1] + [carpim] + lst[i+2:]
+            lst = lst[:i-1] + [[carpim]] + lst[i+2:]
         elif type(val1) == int and type(val2) == str:
-            carpim = val2 * val1
-            #eger carpim 10000 karakterden buyukse hata firlaticak
-            if len(carpim) > 10000:
+            #once uzunlugu hesapliyoruz ki cok buyuk bir string olusturmadan hata verelim
+            if len(val2) * val1 > 10000:
                 raise Exception(f"Runtime error {line_no=}")
-            lst = lst[:i-1] + [carpim] + lst[i+2:]
+            carpim = val2 * val1
+            lst = lst[:i-1] + [[carpim]] + lst[i+2:]
         else:
             raise Exception(f"Runtime error {line_no=}")
-    #burada doplama yapicaz
+    #burada toplama yapicaz
     while "tasu" in lst:
         #sagdan sola islem yapmak icin son tasu indeksini buluyoruz
         i = find_last(lst, "tasu")
         #tasu nun solundaki ve sagindaki degerleri aliyoruz
-        val1 = lst[i-1]
-        val2 = lst[i+1]
+        val1 = lst[i-1][0]
+        val2 = lst[i+1][0]
 
         if type(val1) == int and type(val2) == int:
             toplam = val1 + val2
             #eger toplam 10 digitten buyukse hata firlaticak
             if toplam > 9999999999:
                 raise Exception(f"Runtime error {line_no=}")
-            
-            lst = lst[:i-1] + [toplam] + lst[i+2:]
+            lst = lst[:i-1] + [[toplam]] + lst[i+2:]
         elif type(val1) == str and type(val2) == str:
             birlesik = val1 + val2
             #eger birlesik 10000 karakterden buyukse hata firlaticak
             if len(birlesik) > 10000:
                 raise Exception(f"Runtime error {line_no=}")
             #list slicing ile toplama sonucu ekleniyor
-            lst = lst[:i-1] + [birlesik] + lst[i+2:]
+            lst = lst[:i-1] + [[birlesik]] + lst[i+2:]
         else:
             raise Exception(f"Runtime error {line_no=}")
     return lst
@@ -221,42 +269,44 @@ output_file = sys.argv[3]
 #compile moduysa bu if blogune giricez
 if mode == "-compile":
     #okuma modunda text dosyamizi aciyoruz
-    with open(input_file, "r",encoding="utf-8") as f:
-        #lines listemizi aliyoruz
-        lines = f.readlines()
+    with open(input_file, "r", encoding="utf-8") as f:
+        icerik = f.read()
+    #satirlari ayiriyoruz; bosluklari silmiyoruz cunku satir sonundaki bosluk da hata
+    lines = icerik.split("\n")
+    #dosyanin sonundaki tek yeni satir karakteri bos satir sayilmaz
+    if len(lines) > 1 and lines[-1] == "":
+        lines = lines[:-1]
+    #windows satir sonlarini (\r) temizliyoruz
+    for k in range(len(lines)):
+        if lines[k].endswith("\r"):
+            lines[k] = lines[k][:-1]
     #eger hic line yoksa hata firlaticak
-    if not lines:
+    if len(lines) == 0 or (len(lines) == 1 and lines[0] == ""):
         raise Exception("Compile error line_no=1")
     #hatanin hangi lineda ciktigini yazabilmek icin line no degiskeni tutuyoruz
     line_no = 1
+    son_satir = len(lines)
+    program_bitti = False
     for line in lines:
-        clean_line = line.strip()
-        
         #eger line bossa hata firlaticak
-        if clean_line == "":
+        if line == "":
             raise Exception(f"Compile error {line_no=}")
         #ilk line Puroguramu o hajimeyo . olmak zorunda eger degilse hata firlaticak
         if line_no == 1:
-            if clean_line != "Puroguramu o hajimeyo .":
+            if line != "Puroguramu o hajimeyo .":
                 raise Exception(f"Compile error {line_no=}")
-            #sona ulasamicagi icin burda line arttiriyorum
             line_no += 1
             continue
-        # her line nokta ile bitmek zorunda
-        if not clean_line.endswith("."):
-            raise Exception(f"Compile error {line_no=}")
-        # noktadan once bosluk olmak zorunda
-        if clean_line[-2] != " ":
+        #son line Puroguramu o oware . ise program bitiyor; bu satir bir statement degil
+        if line_no == son_satir and line == "Puroguramu o oware .":
+            program_bitti = True
+            break
+        # her line bosluk + nokta ile bitmek zorunda
+        if not line.endswith(" ."):
             raise Exception(f"Compile error {line_no=}")
         #bisim isimize yaricak kisim nokta ve bosluktan oncekiler orayi aliyoruz
-        content = clean_line[:-2]
-        #birden fazla bosluk varsa bulmak icin split(" ") yapiyoruz ki varsa "" gondersin
-        tokens = content.split(" ")
-        if "" in tokens:
-            raise Exception(f"Compile error {line_no=}")
-        #ne olur ne olmaz token sayisi 0 ise hata firlaticak
-        if len(tokens) < 1:
-            raise Exception(f"Compile error {line_no=}")
+        content = line[:-2]
+        tokens = tokenize(content, line_no)
 
         # DECLARATION--------------------------------------------------------------------------
         if len(tokens) == 5 and tokens[1] == "wa" and tokens[3] == "de" and tokens[4] == "aru":
@@ -290,6 +340,7 @@ if mode == "-compile":
                 raise Exception(f"Compile error {line_no=}")
             # herhangi bir compile hatasi var mi diye tokenlari kontrol ediyoruz
             token_controller(expression_list, line_no)
+            expression_list = normalize(expression_list)
             # type kontrolu yapiyoruz
             expr_type = check_types(expression_list, line_no)
             #eger olmamasi gereken bir type varsa hata firlaticak
@@ -304,18 +355,19 @@ if mode == "-compile":
             expression_list = tokens[:-3]
             # herhangi bir compile hatasi var mi diye tokenlari kontrol ediyoruz
             token_controller(expression_list, line_no)
+            expression_list = normalize(expression_list)
             # type kontrolu yapiyoruz
             check_types(expression_list, line_no)
             #son olarak instruction listesine print islemini ekliyoruz
             instructions.append(("PRINT", expression_list, line_no))
-        
+
         else:
             #eger yukaridaki uc yapidan biri degilse hata firlaticak
             raise Exception(f"Compile error {line_no=}")
         #line no arttiriliyor
         line_no += 1
     #son line Puroguramu o oware . olmak zorunda
-    if lines[-1].strip() != "Puroguramu o oware .":
+    if not program_bitti:
         raise Exception(f"Compile error {line_no=}")
     # pickle dump islemi yapiliyor
     with open(output_file, "wb") as f:
@@ -333,7 +385,7 @@ elif mode == "-execute":
             l = []
             # ilk eleman islem tipi
             mission = eleman[0]
-            
+
             if mission == "DECL":
                 if eleman[2] == "seisu":
                     # degisken seisu ise 0 degeri ataniyor cunku integer
@@ -341,7 +393,7 @@ elif mode == "-execute":
                     # degisken moji-retsu ise bos string ataniyor cunku string
                 elif eleman[2] == "moji-retsu":
                     d[eleman[1]] = ""
-            
+
             elif mission == "ASSIGN":
                 #degiskenler gelen tuple dan aliniyor
                 var_name = eleman[1]
@@ -353,8 +405,8 @@ elif mode == "-execute":
                 #listeyi matematik islemlerinden gecirip sonucu aliyoruz
                 result = list_math(l, line)
                 #sonucu degiskene atiyoruz
-                d[var_name] = result[0]
-            
+                d[var_name] = result[0][0]
+
             elif mission == "PRINT":
                 #degiskenler gelen tuple dan aliniyor
                 value = eleman[1]
@@ -364,18 +416,19 @@ elif mode == "-execute":
                     l.append(word_means(word,d))
                 #listeyi matematik islemlerinden gecirip sonucu aliyoruz
                 result = list_math(l, line)
-                
-                if type(result[0]) == int:
+                sonuc = result[0][0]
+
+                if type(sonuc) == int:
                     #sayiyi virgulle ayirarak yazdirma islemi
-                    temporary_result = str(result[0])
+                    temporary_result = str(sonuc)
                     #once ters ceviricez 4 lu gruplama yapip virgulle birlestiricez
-                    reversered_result = temporary_result[::-1]
+                    reversed_result = temporary_result[::-1]
                     grouped = []
-                    for i in range(0, len(reversered_result), 4):
-                        grouped.append(reversered_result[i:i+4])
+                    for i in range(0, len(reversed_result), 4):
+                        grouped.append(reversed_result[i:i+4])
                     final_result = ",".join(grouped)[::-1]
                     y.write(final_result + "\n")
-                    
+
                 else:
                     #string ise -string- seklinde yazdiriyoruz
-                    y.write(f"-{result[0]}-\n")
+                    y.write(f"-{sonuc}-\n")
